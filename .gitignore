@@ -137,3 +137,14 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Frontend build output
+frontend/dist/
+frontend/build/
+
+# Frontend cache
+frontend/.turbo/
+
+# Claude Code files
+.agents
+.claude

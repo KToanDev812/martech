@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "nodejs-backend-patterns": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "912fa183d031f99b16bfdf29bbedb3dd11e5a59aa48d880777e1497db1e16b5c"
+    },
+    "nodejs-best-practices": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "8d2d50c3512cddb15b8d2794b7f18ff69895ea48c8b78bc9feb6b1d9edaa2a9e"
+    },
+    "react-best-practices": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "1578bc58d47b7f5936812c7b3a791464126620dbb8b3b03e75b0258131590123"
+    },
+    "react-patterns": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "8096ba6c77ac88e7ad76b95249271976ca051dd2faa6376675c8150690b367ad"
+    },
+    "react-ui-patterns": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "6cf16ff01d66cf827c99ea0fdd215e6f2a62b1999737baabc4a85fb8e28adf94"
+    }
+  }
+}
