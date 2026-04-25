@@ -4,119 +4,239 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Email campaign management backend service with a production-ready architecture using Node.js, Express, and PostgreSQL.
+MarTech is a full-stack email campaign management system built with a layered architecture. The application manages email campaigns through a draft → scheduled → sent lifecycle, with user authentication, recipient management, and analytics.
 
-## License
+## Quick Start Commands
 
-MIT License - Copyright © 2026 Lê Khánh Toàn
+### Docker (Recommended)
+```bash
+# Start all services (PostgreSQL, Backend, Frontend)
+docker-compose up -d
 
-## Architecture Principles
+# View logs
+docker-compose logs -f backend
 
-### Layered Architecture (Immutable)
+# Stop all services
+docker-compose down
+
+# Seed database with test data
+docker-compose exec backend npm run seed
+```
+
+### Backend Development
+```bash
+cd backend
+npm run dev          # Start development server with hot reload
+npm run build        # Compile TypeScript
+npm run test         # Run Jest tests
+npm run test:watch   # Run tests in watch mode
+npm run lint         # Run ESLint
+npm run lint:fix     # Fix ESLint issues
+npm run seed         # Seed database with sample data
+```
+
+### Frontend Development
+```bash
+cd frontend
+npm run dev          # Start Vite dev server (port 3000)
+npm run build        # Build for production
+npm run lint         # Run ESLint
+```
+
+## Architecture
+
+### Backend: Layered Architecture (Strict)
+
+**Critical Rule:** Follow the layered separation strictly. No skipping layers.
+
 ```
 Controllers (HTTP) → Services (Business Logic) → Repositories (Data Access) → Database
 ```
 
-**Strict separation of concerns:**
-- Controllers handle HTTP only (parse req, call service, format response)
-- Services contain business logic and state transitions
-- Repositories handle SQL queries and database connections
-- No logic crosses layer boundaries
+**Layer Responsibilities:**
+- **Controllers** (`src/controllers/`): Handle HTTP only - parse requests, call services, format responses
+- **Services** (`src/services/`): Business logic, state transitions, orchestration
+- **Repositories** (`src/repositories/`): SQL queries and database interaction only
+- **Validators** (`src/validators/`): Zod schemas for input validation
 
-### State Machine (Campaign Lifecycle)
-```
-draft → scheduled → sent (terminal)
-```
-
-**Valid transitions:** draft→scheduled, draft→sent, scheduled→sent, scheduled→draft
-**Invalid:** sent→any state (terminal)
-
-### Database Design
-- **UUIDs** for all primary keys (distributed-friendly, no ID enumeration)
-- **TIMESTAMP WITH TIME ZONE** (UTC storage, convert to local in API layer)
-- **CHECK constraints** at DB level for business rules (defense in depth)
-- **ON DELETE RESTRICT** for users→campaigns, **CASCADE** for campaigns/recipients→junction
-
-### Tech Stack Decisions
-- **No heavy ORM** - raw SQL with lightweight query builder
-- **JWT authentication** - HTTP-only cookies, 7-day access/30-day refresh tokens
-- **Zod validation** - schemas on input + database constraints
-- **Transaction strategy** - send operations use atomic transactions
-
-## Development Workflow
-
-### Adding New Features
-1. **Start with schema** - Add migration with proper constraints
-2. **Define API contract** - consistent response format: `{success: true/false, data/error}`
-3. **Implement layers in order** - Repository → Service → Controller → Routes
-4. **Add validation** - Zod schemas + database constraints
-5. **Test state transitions** - verify state machine rules
-
-### Code Organization
-```
-/backend/src/
-  /controllers     # HTTP layer only
-  /services        # Business logic & state transitions  
-  /repositories    # SQL queries & connection management
-  /routes          # Route definitions (no logic)
-  /middlewares     # Cross-cutting concerns (auth, errors)
-  /validators      # Zod schemas
-  /db              # Connection & raw SQL files
-  /utils           # Utilities (logger, helpers)
+**Path Aliases:**
+```typescript
+import { campaignService } from '@services/CampaignService'
+import { campaignRepository } from '@repositories/CampaignRepository'
 ```
 
-### Error Handling
-**HTTP status codes:**
-- `400` - Validation error
-- `401` - Authentication failed  
-- `403` - Authorization failed
-- `404` - Resource not found
-- `409` - State conflict (invalid state transition)
-- `500` - Server error
+### Campaign State Machine
 
-**Consistent error format:**
+**States:** `draft` → `scheduled` → `sent` (terminal)
+
+**Valid Transitions:**
+- draft → scheduled
+- draft → sent
+- scheduled → sent
+
+**Rules:**
+- `sent` is terminal - no transitions allowed
+- Only `draft` campaigns can be edited or deleted
+- State transitions must be enforced in service layer
+- Database uses CHECK constraints for status validation
+
+### Database Design Principles
+
+- **Primary Keys:** Always use UUID
+- **Timestamps:** Use `TIMESTAMP WITH TIME ZONE` (store in UTC)
+- **Constraints:** Use CHECK constraints for status values and business rules
+- **Foreign Keys:** 
+  - `ON DELETE RESTRICT` for users → campaigns
+  - `ON DELETE CASCADE` for campaigns → campaign_recipients
+- **Indexes:** Index frequently filtered fields (status, created_by)
+
+### Transactions & Concurrency
+
+**Mandatory Transactions:**
+Multi-step operations must use transactions (e.g., `/campaigns/:id/send` updates both campaign status and recipients).
+
+**Concurrency Control:**
+Use row-level locking (`SELECT ... FOR UPDATE`) to prevent race conditions on critical operations like sending campaigns.
+
+**Idempotency:**
+Critical operations must be idempotent - always check current state before applying updates.
+
+### Frontend: State Management (Strict Separation)
+
+**Critical Rule:** Separate server state from client state strictly.
+
+```
+React Query → ALL server state (API data)
+Redux → ONLY authentication state (token, user info)
+```
+
+**Data Fetching Pattern:**
+```
+Components → React Query hooks → Services layer → Axios API client
+```
+
+**Path Aliases:**
+```typescript
+import { campaignsService } from '@/services/campaigns.service'
+import { useCampaigns } from '@/features/campaigns/hooks/useCampaigns'
+```
+
+### Frontend Feature Structure
+
+```
+features/
+├── auth/
+│   ├── hooks/          # React Query hooks
+│   ├── services/       # API service functions
+│   └── components/     # Auth-specific UI components
+└── campaigns/
+    ├── hooks/
+    ├── services/
+    └── components/
+```
+
+**Key Pattern:** Each feature has its own hooks and services. Hooks export services for use in mutations.
+
+### API Response Format
+
+**Success:**
 ```json
-{"success": false, "error": {"code": "ERROR_CODE", "message": "...", "details": {}}}
+{
+  "success": true,
+  "data": { ... }
+}
 ```
 
-## Critical Rules
-
-### State Management
-- Only draft campaigns can be edited/deleted
-- sent is terminal - no transitions out
-- scheduled_at must be in future (DB constraint enforced)
-
-### Data Integrity  
-- All stat calculations use single SQL query (not N+1)
-- Division by zero returns 0 (not NaN/Infinity)
-- Send operations are atomic (transaction wraps status + recipients)
-
-### Testing Strategy
-- **Unit tests** - service layer business logic
-- **Integration tests** - repository SQL queries
-- **State transition tests** - verify state machine rules
-
-## Build & Deploy
-
-```bash
-# Development
-npm run dev          # Hot reload server
-npm test            # Run test suite
-npm run lint        # Lint code
-
-# Production  
-npm run build       # Compile TypeScript
-npm start           # Start server
+**Error:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human readable message"
+  }
+}
 ```
 
-**Environment:** Use `.env.example` as template. Minimum required: `DATABASE_URL`, `JWT_SECRET` (32+ chars), `PORT`.
+**Axios Interceptor:** The frontend API client (`src/services/api.ts`) automatically unwraps the response envelope and handles authentication errors.
 
-## Database Migrations
+## Configuration
 
-Located in `/backend/migrations/`. Run in numerical order:
-```bash
-psql -U username -d martech -f migrations/001_create_users.sql
-# ... continue through 004
+### Environment Setup
+
+**Backend** (`backend/.env`):
+```
+NODE_ENV=development
+PORT=3001
+DATABASE_URL=postgresql://martech:martech_password@localhost:5432/martech
+JWT_SECRET=your-super-secret-jwt-key-min-32-chars
+CORS_ORIGIN=http://localhost:3000
 ```
 
-**Rollback:** Drop tables in reverse order if needed.
+**Frontend** (`frontend/.env`):
+```
+VITE_API_URL=http://localhost:3001/api/v1
+```
+
+### Docker Services
+
+- **PostgreSQL:** `localhost:5432`
+- **Backend API:** `localhost:3001`
+- **Frontend:** `localhost:3000`
+
+## Testing
+
+**Backend:** Jest tests in `backend/tests/unit/`
+**Frontend:** No test setup currently configured
+
+## Code Quality Standards
+
+### Backend
+- Use TypeScript with strict mode disabled (project uses gradual typing)
+- All business logic must be in service layer
+- Use Winston for structured logging
+- Use Zod for request validation
+- Handle errors with custom error classes (`NotFoundError`, `ValidationError`)
+
+### Frontend
+- Use React Query for all server state with proper query keys
+- Use shadcn/ui for UI components
+- Handle loading, error, and empty states
+- Avoid unnecessary abstractions - prefer simple, maintainable solutions
+- Never duplicate server state in Redux
+
+## Common Patterns
+
+### Creating a New API Endpoint
+
+1. Add Zod schema in `src/validators/`
+2. Create repository methods in `src/repositories/`
+3. Create service methods in `src/services/`
+4. Create controller in `src/controllers/`
+5. Add routes in `src/routes/`
+6. Update API documentation
+
+### Creating a New Frontend Feature
+
+1. Create feature directory: `src/features/feature-name/`
+2. Create service: `services/feature.service.ts`
+3. Create hooks: `hooks/useFeature.ts` (export service for mutations)
+4. Create components: `components/FeatureComponent.tsx`
+5. Use React Query for data fetching
+6. Use shadcn/ui for UI elements
+
+### Database Migrations
+
+Place SQL migrations in `backend/migrations/` with numbered prefix:
+```
+001_create_users.sql
+002_create_campaigns.sql
+```
+
+## Important Notes
+
+- **Seeding:** Running `npm run seed` will clear all existing data
+- **Authentication:** JWT tokens stored in HTTP-only cookies, handled by Redux
+- **Error Handling:** Backend uses custom error classes, frontend uses Axios interceptors
+- **Path Aliases:** Both frontend and backend use path aliases - check respective tsconfig.json files
+- **Port Conflicts:** Default ports are 3000 (frontend), 3001 (backend), 5432 (database)
