@@ -78,9 +78,11 @@ export class CampaignRecipientRepository {
     // Security: Validate UUID
     this.validateUUID(campaignId);
 
+    console.log('🔍 Executing recipient query for campaign:', campaignId);
+
     const rows = await query(
       `SELECT
-        cr.recipient_id,
+        cr.recipient_id as id,
         r.email,
         r.name,
         cr.sent_at,
@@ -93,6 +95,9 @@ export class CampaignRecipientRepository {
       ORDER BY cr.created_at ASC`,
       [campaignId]
     );
+
+    console.log('✅ Recipient query result:', rows.length, 'recipients found');
+    console.log('📋 Recipient data:', rows);
 
     return rows;
   }

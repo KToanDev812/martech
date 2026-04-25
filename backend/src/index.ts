@@ -19,7 +19,9 @@ const PORT = process.env.PORT || 3000;
 app.use(helmet()); // Security headers
 app.use(cors({
   origin: process.env.CORS_ORIGIN || '*',
-  credentials: process.env.CORS_CREDENTIALS === 'true',
+  credentials: true, // Enable credentials for HTTP-only cookies
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies

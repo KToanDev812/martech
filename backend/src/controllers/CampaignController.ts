@@ -18,10 +18,9 @@ export class CampaignController {
     const input = createCampaignSchema.parse(req.body);
     const userId = req.userId!; // Set by auth middleware
 
-    // Call service
+    // Call service (email-to-UUID conversion handled internally)
     const campaign = await campaignService.createCampaign(
       input,
-      input.recipient_ids,
       userId
     );
 
@@ -40,8 +39,18 @@ export class CampaignController {
     const campaignId = requireStringParam(req.params.id, 'id');
     const userId = req.userId!; // Set by auth middleware
 
+    console.log('🔍 getCampaign API call:', { campaignId, userId });
+
     // Call service
     const campaign = await campaignService.getCampaignById(campaignId, userId);
+
+    console.log('✅ Campaign data from service:', {
+      id: campaign?.id,
+      name: campaign?.name,
+      hasRecipients: !!campaign?.recipients,
+      recipientCount: campaign?.recipients?.length,
+      recipients: campaign?.recipients,
+    });
 
     // Send response
     res.status(200).json({

@@ -1,4 +1,4 @@
-import { query, transaction } from '@db/connection';
+import { query } from '@db/connection';
 
 export interface Recipient {
   id: string;

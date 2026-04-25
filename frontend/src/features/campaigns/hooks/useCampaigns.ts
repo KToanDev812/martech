@@ -29,6 +29,11 @@ export function useCampaigns(params?: {
     queryKey: campaignKeys.list(params || {}),
     queryFn: () => campaignsService.getAll(params),
     staleTime: 5 * 60 * 1000, // 5 minutes
+    placeholderData: (previousData) => {
+      // Only keep previous data if we're changing filters/pagination (not initial load)
+      // This prevents flicker when switching between filters or pages
+      return previousData || undefined
+    },
   })
 }
 

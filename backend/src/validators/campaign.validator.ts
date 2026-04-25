@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 /**
  * Create campaign validation schema
+ * Accepts email addresses and converts them to recipient IDs
  */
 export const createCampaignSchema = z.object({
   name: z.string()
@@ -12,9 +13,10 @@ export const createCampaignSchema = z.object({
     .max(500, 'Subject must be less than 500 characters'),
   body: z.string()
     .min(10, 'Email body must be at least 10 characters'),
-  recipient_ids: z.array(z.string().uuid())
-    .min(1, 'At least one recipient is required')
-    .max(1000, 'Cannot add more than 1000 recipients at once'),
+  recipient_emails: z.array(z.string().email())
+    .min(1, 'At least one recipient email is required')
+    .max(1000, 'Cannot add more than 1000 recipients at once')
+    .optional(), // Made optional to support draft creation
 });
 
 export type CreateCampaignInput = z.infer<typeof createCampaignSchema>;
@@ -36,10 +38,7 @@ export const updateCampaignSchema = z.object({
     .optional(),
   scheduled_at: z.string()
     .datetime()
-    .optional(),
-  recipient_ids: z.array(z.string().uuid())
-    .min(1, 'At least one recipient is required')
-    .max(1000, 'Cannot add more than 1000 recipients at once')
+    .nullable()
     .optional(),
 });
 

@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
-import { userRepository, User } from '@repositories/UserRepository';
+import jwt, { SignOptions } from 'jsonwebtoken';
+import { userRepository } from '@repositories/UserRepository';
 import { RegisterInput, LoginInput } from '@validators/auth.validator';
 import { ConflictError, UnauthorizedError } from '@utils/errors';
 
@@ -113,7 +113,7 @@ export class AuthService {
     }
 
     return jwt.sign({ userId }, jwtSecret, {
-      expiresIn: jwtExpiresIn,
+      expiresIn: jwtExpiresIn as SignOptions['expiresIn'],
     });
   }
 }

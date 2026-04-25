@@ -61,6 +61,9 @@ export interface CampaignListResponse {
     page: number
     limit: number
     total: number
+    total_pages: number
+    has_next: boolean
+    has_prev: boolean
   }
 }
 
@@ -78,15 +81,14 @@ export interface CreateCampaignRequest {
   name: string
   subject: string
   body: string
-  recipient_ids: string[]
+  recipient_emails?: string[]
 }
 
 export interface UpdateCampaignRequest {
   name?: string
   subject?: string
   body?: string
-  scheduled_at?: string | null
-  recipient_ids?: string[]
+  scheduled_at?: string | null | undefined
 }
 
 export interface ScheduleCampaignRequest {

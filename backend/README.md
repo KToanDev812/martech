@@ -1,22 +1,16 @@
-# Martech Backend
+# MarTech Backend
 
 Email campaign management backend service built with Node.js, Express, and PostgreSQL.
 
-## 🔒 Security First
-
-This application implements comprehensive security measures including SQL injection prevention, input validation, and security monitoring. **See [SECURITY.md](./SECURITY.md) for detailed security documentation.**
-
-**Security Score: 9/10 (Production-Ready)**
-
 ## Tech Stack
 
-- **Runtime**: Node.js 18+
+- **Runtime**: Node.js 20+
 - **Framework**: Express.js
-- **Database**: PostgreSQL 12+
+- **Database**: PostgreSQL 16+
 - **Language**: TypeScript
 - **Authentication**: JWT (HTTP-only cookies)
 - **Validation**: Zod
-- **Logging**: Winston
+- **Testing**: Jest
 
 ## Project Structure
 
@@ -29,14 +23,13 @@ This application implements comprehensive security measures including SQL inject
     /routes          # Route definitions
     /middlewares     # Cross-cutting concerns
     /validators      # Zod validation schemas
-    /db              # Database connection & SQL files
-    /utils           # Utility functions (including security.ts)
+    /db              # Database connection
+    /utils           # Utility functions
   /migrations        # Database migrations
-  /tests
-    /security        # Security test suite
-  SECURITY.md        # Comprehensive security documentation
+  /tests             # Test files
   package.json
   tsconfig.json
+  .env.example
 ```
 
 ## Installation
@@ -45,12 +38,14 @@ This application implements comprehensive security measures including SQL inject
 # Install dependencies
 npm install
 
-# Copy environment variables
+# Create environment file
 cp .env.example .env
 
 # Edit .env with your configuration
 nano .env
 ```
+
+**Important:** The `.env` file is required for the application to run. Docker Compose expects this file to exist at `./backend/.env`.
 
 ## Database Setup
 
@@ -58,7 +53,7 @@ nano .env
 # Create database
 createdb martech
 
-# Run migrations
+# Run migrations in order
 psql -U username -d martech -f migrations/001_create_users.sql
 psql -U username -d martech -f migrations/002_create_campaigns.sql
 psql -U username -d martech -f migrations/003_create_recipients.sql
@@ -80,24 +75,42 @@ npm start
 # Run tests
 npm test
 
-# Run security tests
-npm test -- SQLInjection.test.ts
-
 # Run tests in watch mode
 npm run test:watch
 
+# Seed database with sample data
+npm run seed
+
 # Lint code
 npm run lint
-
-# Format code
-npm run format
 ```
+
+### Seed Data
+
+Populate your database with sample data for testing:
+
+```bash
+npm run seed
+```
+
+**What gets seeded:**
+- 1 test user (admin@martech.com)
+- 8 recipients with different profiles
+- 20 campaigns in various states (draft, scheduled, sent)
+- Campaign-recipient relationships
+
+**Warning:** Seeding will clear all existing data. Use only for development/testing!
+
+**Test Account:**
+- Email: `admin@martech.com` / Password: `password123`
 
 ## API Endpoints
 
 ### Authentication
 - `POST /api/v1/auth/register` - Register new user
 - `POST /api/v1/auth/login` - Login user
+- `POST /api/v1/auth/logout` - Logout user
+- `GET /api/v1/auth/me` - Get current user
 
 ### Campaigns
 - `GET /api/v1/campaigns` - List user's campaigns
@@ -109,8 +122,12 @@ npm run format
 - `POST /api/v1/campaigns/:id/send` - Send campaign immediately
 - `GET /api/v1/campaigns/:id/stats` - Get campaign statistics
 
-### Health Check
-- `GET /health` - Server health check
+### Recipients
+- `GET /api/v1/recipients` - List all recipients
+- `POST /api/v1/recipients` - Create recipient
+- `GET /api/v1/recipients/:id` - Get recipient details
+- `PATCH /api/v1/recipients/:id` - Update recipient
+- `DELETE /api/v1/recipients/:id` - Delete recipient
 
 ## Architecture
 
@@ -139,8 +156,8 @@ Campaign lifecycle: `draft → scheduled → sent`
 **Valid Transitions:**
 1. draft → scheduled (POST /schedule)
 2. draft → sent (POST /send)
-3. scheduled → sent (worker or POST /send)
-4. scheduled → draft (PATCH to cancel)
+3. scheduled → sent (POST /send)
+4. scheduled → draft (reschedule)
 
 **Invalid:**
 - sent → any state (terminal state)
@@ -151,10 +168,15 @@ See `.env.example` for all available configuration options.
 
 Key variables:
 - `DATABASE_URL` - PostgreSQL connection string
+- `DATABASE_POOL_MIN` - Minimum pool size (default: 2)
+- `DATABASE_POOL_MAX` - Maximum pool size (default: 10)
 - `JWT_SECRET` - Secret key for JWT tokens (min 32 chars)
+- `JWT_EXPIRES_IN` - Token expiration (default: 7d)
 - `PORT` - Server port (default: 3000)
-- `NODE_ENV` - Environment (development, staging, production)
-- `EMAIL_SERVICE` - Email provider (console, sendgrid, ses)
+- `API_VERSION` - API version prefix (default: v1)
+- `LOG_LEVEL` - Logging level (default: info)
+- `LOG_FORMAT` - Log format (json or pretty)
+- `CORS_ORIGIN` - Allowed CORS origins
 
 ## Error Handling
 
@@ -191,7 +213,7 @@ Key tables:
 
 ## Security Features
 
-### SQL Injection Prevention ✅
+### SQL Injection Prevention
 - Parameterized queries for all database operations
 - Input validation at repository level
 - UUID format validation
@@ -199,20 +221,11 @@ Key tables:
 - Column name whitelisting
 - Status enum validation
 
-### Security Monitoring ✅
-- Enhanced query logging
-- Slow query detection (>1s)
-- Transaction monitoring
-- Sanitized logs (no sensitive data)
-- Performance metrics
-
-### Input Validation ✅
+### Input Validation
 - Zod schema validation
 - TypeScript type safety
 - Runtime validation in repositories
 - Defense in depth approach
-
-**For detailed security information, see [SECURITY.md](./SECURITY.md)**
 
 ## Testing
 
@@ -221,10 +234,7 @@ Key tables:
 npm test
 
 # Run specific test file
-npm test -- CampaignService.test.ts
-
-# Run security tests
-npm test -- SQLInjection.test.ts
+npm test -- campaign.test.ts
 
 # Run tests in watch mode
 npm run test:watch
@@ -232,6 +242,13 @@ npm run test:watch
 # Generate coverage report
 npm test -- --coverage
 ```
+
+**Testing Focus:**
+- Service layer business logic
+- State machine transitions
+- Validation schemas
+- Repository SQL queries
+- Edge cases and error handling
 
 ## Deployment
 
@@ -250,19 +267,9 @@ npm start
 
 1. Set `NODE_ENV=production`
 2. Configure production database URL
-3. Set strong JWT_SECRET
-4. Configure email service (SendGrid, AWS SES, etc.)
-5. Set appropriate CORS_ORIGIN
-
-### Security Checklist for Deployment
-- [ ] Review security documentation (SECURITY.md)
-- [ ] Run security test suite
-- [ ] Verify database connection encryption
-- [ ] Configure CORS properly
-- [ ] Set strong JWT_SECRET (32+ chars)
-- [ ] Enable security logging
-- [ ] Set up monitoring and alerts
-- [ ] Review rate limiting configuration
+3. Set strong JWT_SECRET (32+ chars)
+4. Set appropriate CORS_ORIGIN
+5. Configure email service if needed
 
 ### Process Manager
 
@@ -274,15 +281,6 @@ pm2 start dist/index.js --name martech-backend
 pm2 startup
 pm2 save
 ```
-
-## Contributing
-
-When contributing to this codebase:
-1. Follow the security guidelines in [SECURITY.md](./SECURITY.md)
-2. Always validate inputs at repository level
-3. Use parameterized queries
-4. Add security tests for new features
-5. Update documentation
 
 ## License
 

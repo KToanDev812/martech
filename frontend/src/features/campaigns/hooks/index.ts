@@ -14,4 +14,5 @@ export {
   useScheduleCampaign,
   useSendCampaign,
   useCancelSchedule,
+  useCampaignMutations,
 } from './useCampaignMutations'

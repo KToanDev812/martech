@@ -1,8 +1,8 @@
 import { campaignRepository, Campaign } from '@repositories/CampaignRepository';
-import { recipientRepository } from '@repositories/RecipientRepository';
 import { campaignRecipientRepository } from '@repositories/CampaignRecipientRepository';
-import { CreateCampaignInput } from '@validators/campaign.validator';
+import { CreateCampaignInput, UpdateCampaignInput } from '@validators/campaign.validator';
 import { NotFoundError, ValidationError } from '@utils/errors';
+import { recipientService } from './RecipientService';
 
 export interface CampaignResponse extends Campaign {
   recipient_count: number;
@@ -14,19 +14,17 @@ export interface CampaignResponse extends Campaign {
 export class CampaignService {
   /**
    * Create a new campaign
+   * Accepts email addresses and automatically converts them to recipient IDs
    */
   async createCampaign(
     input: CreateCampaignInput,
-    recipientIds: string[],
     userId: string
   ): Promise<CampaignResponse> {
-    // Validate recipients exist
-    const missingRecipients = await recipientRepository.validateRecipientsExist(recipientIds);
-    if (missingRecipients.length > 0) {
-      throw new ValidationError('Some recipients do not exist', {
-        missing_recipients: missingRecipients,
-      });
-    }
+    // Convert emails to recipient IDs (creates recipients if needed)
+    const recipientEmails = input.recipient_emails || [];
+    const recipientIds = await recipientService.getOrCreateRecipientsByEmails(
+      recipientEmails
+    );
 
     // Create campaign with recipients
     const campaign = await campaignRepository.createWithRecipients(
@@ -59,7 +57,7 @@ export class CampaignService {
     }
 
     // Verify user owns this campaign
-    if (campaign.created_by !== userId) {
+    if (campaign.created_by.id !== userId) {
       throw new ValidationError('You do not have permission to access this campaign');
     }
 
@@ -102,7 +100,7 @@ export class CampaignService {
    */
   async updateCampaign(
     id: string,
-    updates: Partial<CreateCampaignInput>,
+    updates: Partial<UpdateCampaignInput>,
     userId: string
   ): Promise<Campaign> {
     // Check if campaign exists and user owns it
@@ -113,8 +111,29 @@ export class CampaignService {
       throw new ValidationError('Only draft campaigns can be edited');
     }
 
+    // Convert scheduled_at from string to Date if provided
+    const updatesForRepo: Partial<Pick<Campaign, 'name' | 'subject' | 'body' | 'scheduled_at'>> = {};
+
+    if (updates.name !== undefined) {
+      updatesForRepo.name = updates.name;
+    }
+    if (updates.subject !== undefined) {
+      updatesForRepo.subject = updates.subject;
+    }
+    if (updates.body !== undefined) {
+      updatesForRepo.body = updates.body;
+    }
+    if (updates.scheduled_at !== undefined) {
+      // Handle null (clear scheduled_at) vs string (set scheduled_at)
+      if (updates.scheduled_at === null) {
+        updatesForRepo.scheduled_at = null;
+      } else {
+        updatesForRepo.scheduled_at = new Date(updates.scheduled_at);
+      }
+    }
+
     // Update campaign
-    const updated = await campaignRepository.update(id, updates);
+    const updated = await campaignRepository.update(id, updatesForRepo);
 
     return updated;
   }
@@ -146,18 +165,16 @@ export class CampaignService {
     // Check if campaign exists and user owns it
     const existing = await this.getCampaignById(id, userId);
 
-    // Only draft campaigns can be scheduled
-    if (existing.status !== 'draft') {
-      throw new ValidationError('Only draft campaigns can be scheduled');
+    // Only draft and scheduled campaigns can be scheduled/rescheduled
+    // Sent campaigns cannot be rescheduled
+    if (existing.status === 'sent') {
+      throw new ValidationError('Cannot reschedule sent campaigns');
     }
 
-    // Update campaign with scheduled time and status
-    const updated = await campaignRepository.update(id, {
-      scheduled_at: scheduledAt,
-    });
-
-    // Update status to scheduled
-    return await campaignRepository.updateStatus(id, 'scheduled');
+    // Update campaign with scheduled time and status atomically
+    // This must be done in a single query to satisfy the database constraint:
+    // CONSTRAINT draft_can_be_scheduled CHECK (status = 'scheduled' OR scheduled_at IS NULL)
+    return await campaignRepository.scheduleCampaign(id, scheduledAt);
   }
 
   /**

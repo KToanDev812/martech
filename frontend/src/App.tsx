@@ -7,15 +7,18 @@ import { Toaster } from 'sonner'
 import { store } from '@/store'
 import { queryClient } from './app/queryClient'
 import AppRoutes from '@/routes'
+import { ErrorBoundary } from '@/components/common'
 
 function App() {
   return (
     <Provider store={store}>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <AppRoutes />
-          <Toaster position="top-right" richColors />
-        </BrowserRouter>
+        <ErrorBoundary>
+          <BrowserRouter>
+            <AppRoutes />
+            <Toaster position="top-right" richColors />
+          </BrowserRouter>
+        </ErrorBoundary>
         <ReactQueryDevtools initialIsOpen={false} />
       </QueryClientProvider>
     </Provider>

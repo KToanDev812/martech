@@ -1,5 +1,3 @@
-import { Query } from 'express';
-
 /**
  * Utility functions for handling Express request types safely
  */
@@ -9,7 +7,7 @@ import { Query } from 'express';
  * @param value - The value from req.params or req.query
  * @returns The string value or undefined if not present or not a string
  */
-export function getStringParam(value: string | string[] | Query | undefined): string | undefined {
+export function getStringParam(value: string | string[] | undefined): string | undefined {
   if (!value) return undefined;
   if (Array.isArray(value)) {
     return typeof value[0] === 'string' ? value[0] : undefined;
@@ -24,7 +22,7 @@ export function getStringParam(value: string | string[] | Query | undefined): st
  * @returns The string value
  * @throws Error if the parameter is not present or not a string
  */
-export function requireStringParam(value: string | string[] | Query | undefined, paramName: string): string {
+export function requireStringParam(value: string | string[] | undefined, paramName: string): string {
   const result = getStringParam(value);
   if (!result) {
     throw new Error(`Required parameter '${paramName}' is missing`);

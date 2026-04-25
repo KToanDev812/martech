@@ -4,6 +4,7 @@ import { ProtectedRoute } from './ProtectedRoute'
 
 // Lazy load pages for code splitting
 const LoginPage = lazy(() => import('@/pages/LoginPage'))
+const RegisterPage = lazy(() => import('@/pages/RegisterPage'))
 const CampaignListPage = lazy(() => import('@/pages/CampaignListPage'))
 const CampaignDetailPage = lazy(() => import('@/pages/CampaignDetailPage'))
 const CampaignFormPage = lazy(() => import('@/pages/CampaignFormPage'))
@@ -26,6 +27,7 @@ function AppRoutes() {
 
         {/* Public routes */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
 
         {/* Protected routes */}
         <Route

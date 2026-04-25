@@ -1,4 +1,15 @@
 import { query, transaction } from '@db/connection';
+import { campaignRecipientRepository } from './CampaignRecipientRepository';
+
+export interface CampaignRecipient {
+  recipient_id: string;
+  email: string;
+  name: string | null;
+  sent_at: Date | null;
+  opened_at: Date | null;
+  status: 'pending' | 'sent' | 'failed';
+  created_at: Date;
+}
 
 export interface Campaign {
   id: string;
@@ -7,9 +18,14 @@ export interface Campaign {
   body: string;
   status: 'draft' | 'scheduled' | 'sent';
   scheduled_at: Date | null;
-  created_by: string;
+  created_by: {
+    id: string;
+    name: string;
+  };
   created_at: Date;
   updated_at: Date;
+  recipient_count: number;
+  recipients?: CampaignRecipient[];
 }
 
 export interface CampaignWithRecipients extends Campaign {
@@ -57,14 +73,14 @@ export class CampaignRepository {
 
     return await transaction(async (client) => {
       // Create campaign
-      const campaignResult = await client.query<Campaign>(
+      const campaignResult = await client.query<any>(
         `INSERT INTO campaigns (name, subject, body, created_by)
          VALUES ($1, $2, $3, $4)
          RETURNING id, name, subject, body, status, scheduled_at, created_by, created_at, updated_at`,
         [input.name, input.subject, input.body, input.created_by]
       );
 
-      const campaign = campaignResult.rows[0];
+      const row = campaignResult.rows[0];
 
       // Associate recipients
       if (recipientIds.length > 0) {
@@ -75,29 +91,88 @@ export class CampaignRepository {
         await client.query(
           `INSERT INTO campaign_recipients (campaign_id, recipient_id)
            VALUES ${recipientValues}`,
-          [campaign.id, ...recipientIds]
+          [row.id, ...recipientIds]
         );
       }
 
-      return campaign;
+      // Get user name for created_by field
+      const userResult = await client.query(
+        `SELECT name FROM users WHERE id = $1`,
+        [row.created_by]
+      );
+
+      return {
+        id: row.id,
+        name: row.name,
+        subject: row.subject,
+        body: row.body,
+        status: row.status,
+        scheduled_at: row.scheduled_at,
+        created_by: {
+          id: row.created_by,
+          name: userResult.rows[0].name,
+        },
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        recipient_count: recipientIds.length,
+        recipients: [], // Empty array for newly created campaigns
+      };
     });
   }
 
   /**
-   * Find campaign by ID
+   * Find campaign by ID with recipients
    */
   async findById(id: string): Promise<Campaign | null> {
     // Security: Validate UUID
     this.validateUUID(id);
 
-    const rows = await query<Campaign>(
-      `SELECT id, name, subject, body, status, scheduled_at, created_by, created_at, updated_at
-       FROM campaigns
-       WHERE id = $1`,
+    const rows = await query<any>(
+      `SELECT
+        c.id,
+        c.name,
+        c.subject,
+        c.body,
+        c.status,
+        c.scheduled_at,
+        c.created_by,
+        c.created_at,
+        c.updated_at,
+        u.name as created_by_name,
+        (SELECT COUNT(*) FROM campaign_recipients WHERE campaign_id = c.id) as recipient_count
+       FROM campaigns c
+       LEFT JOIN users u ON c.created_by = u.id
+       WHERE c.id = $1`,
       [id]
     );
 
-    return rows.length > 0 ? rows[0] : null;
+    if (rows.length === 0) {
+      return null;
+    }
+
+    const row = rows[0];
+
+    // Fetch recipients for this campaign
+    console.log('🔍 Fetching recipients for campaign:', id);
+    const recipients = await campaignRecipientRepository.getRecipientsByCampaign(id);
+    console.log('✅ Found recipients:', recipients.length, recipients);
+
+    return {
+      id: row.id,
+      name: row.name,
+      subject: row.subject,
+      body: row.body,
+      status: row.status,
+      scheduled_at: row.scheduled_at,
+      created_by: {
+        id: row.created_by,
+        name: row.created_by_name,
+      },
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      recipient_count: parseInt(row.recipient_count, 10),
+      recipients,
+    };
   }
 
   /**
@@ -120,9 +195,19 @@ export class CampaignRepository {
     }
 
     let queryText = `
-      SELECT c.*,
+      SELECT c.id,
+             c.name,
+             c.subject,
+             c.body,
+             c.status,
+             c.scheduled_at,
+             c.created_by,
+             c.created_at,
+             c.updated_at,
+             u.name as created_by_name,
              COUNT(cr.recipient_id) as recipient_count
       FROM campaigns c
+      LEFT JOIN users u ON c.created_by = u.id
       LEFT JOIN campaign_recipients cr ON c.id = cr.campaign_id
       WHERE c.created_by = $1
     `;
@@ -137,13 +222,29 @@ export class CampaignRepository {
     }
 
     queryText += `
-      GROUP BY c.id
+      GROUP BY c.id, c.name, c.subject, c.body, c.status, c.scheduled_at, c.created_by, c.created_at, c.updated_at, u.name
       ORDER BY c.created_at DESC
       LIMIT $2 OFFSET $3
     `;
 
-    const rows = await query<CampaignWithRecipients>(queryText, params);
-    return rows;
+    const rows = await query<any>(queryText, params);
+
+    // Map rows to proper Campaign structure
+    return rows.map(row => ({
+      id: row.id,
+      name: row.name,
+      subject: row.subject,
+      body: row.body,
+      status: row.status,
+      scheduled_at: row.scheduled_at,
+      created_by: {
+        id: row.created_by,
+        name: row.created_by_name,
+      },
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      recipient_count: parseInt(row.recipient_count, 10),
+    }));
   }
 
   /**
@@ -202,19 +303,40 @@ export class CampaignRepository {
     values.push(id);
 
     const queryText = `
-      UPDATE campaigns
+      UPDATE campaigns c
       SET ${fields.join(', ')}
-      WHERE id = $${paramIndex}
-      RETURNING id, name, subject, body, status, scheduled_at, created_by, created_at, updated_at
+      FROM users u
+      WHERE c.id = $${paramIndex} AND c.created_by = u.id
+      RETURNING c.id, c.name, c.subject, c.body, c.status, c.scheduled_at, c.created_by, c.created_at, c.updated_at, u.name as created_by_name, (SELECT COUNT(*) FROM campaign_recipients WHERE campaign_id = c.id) as recipient_count
     `;
 
-    const rows = await query<Campaign>(queryText, values);
+    const rows = await query<any>(queryText, values);
 
     if (rows.length === 0) {
       throw new Error('Campaign not found');
     }
 
-    return rows[0];
+    const row = rows[0];
+
+    // Fetch recipients for this campaign
+    const recipients = await campaignRecipientRepository.getRecipientsByCampaign(id);
+
+    return {
+      id: row.id,
+      name: row.name,
+      subject: row.subject,
+      body: row.body,
+      status: row.status,
+      scheduled_at: row.scheduled_at,
+      created_by: {
+        id: row.created_by,
+        name: row.created_by_name,
+      },
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      recipient_count: parseInt(row.recipient_count, 10),
+      recipients,
+    };
   }
 
   /**
@@ -239,11 +361,12 @@ export class CampaignRepository {
       throw new Error(`Invalid status: ${status}. Must be one of: ${VALID_STATUSES.join(', ')}`);
     }
 
-    const rows = await query<Campaign>(
-      `UPDATE campaigns
+    const rows = await query<any>(
+      `UPDATE campaigns c
        SET status = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2
-       RETURNING id, name, subject, body, status, scheduled_at, created_by, created_at, updated_at`,
+       FROM users u
+       WHERE c.id = $2 AND c.created_by = u.id
+       RETURNING c.id, c.name, c.subject, c.body, c.status, c.scheduled_at, c.created_by, c.created_at, c.updated_at, u.name as created_by_name, (SELECT COUNT(*) FROM campaign_recipients WHERE campaign_id = c.id) as recipient_count`,
       [status, id]
     );
 
@@ -251,7 +374,72 @@ export class CampaignRepository {
       throw new Error('Campaign not found');
     }
 
-    return rows[0];
+    const row = rows[0];
+
+    // Fetch recipients for this campaign
+    const recipients = await campaignRecipientRepository.getRecipientsByCampaign(id);
+
+    return {
+      id: row.id,
+      name: row.name,
+      subject: row.subject,
+      body: row.body,
+      status: row.status,
+      scheduled_at: row.scheduled_at,
+      created_by: {
+        id: row.created_by,
+        name: row.created_by_name,
+      },
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      recipient_count: parseInt(row.recipient_count, 10),
+      recipients,
+    };
+  }
+
+  /**
+   * Schedule campaign - atomically update both scheduled_at and status
+   * This method is required to satisfy the database constraint:
+   * CONSTRAINT draft_can_be_scheduled CHECK (status = 'scheduled' OR scheduled_at IS NULL)
+   */
+  async scheduleCampaign(id: string, scheduledAt: Date): Promise<Campaign> {
+    // Security: Validate UUID
+    this.validateUUID(id);
+
+    const rows = await query<any>(
+      `UPDATE campaigns c
+       SET scheduled_at = $1, status = 'scheduled', updated_at = CURRENT_TIMESTAMP
+       FROM users u
+       WHERE c.id = $2 AND c.created_by = u.id AND c.status IN ('draft', 'scheduled')
+       RETURNING c.id, c.name, c.subject, c.body, c.status, c.scheduled_at, c.created_by, c.created_at, c.updated_at, u.name as created_by_name, (SELECT COUNT(*) FROM campaign_recipients WHERE campaign_id = c.id) as recipient_count`,
+      [scheduledAt, id]
+    );
+
+    if (rows.length === 0) {
+      throw new Error('Campaign not found or cannot be scheduled');
+    }
+
+    const row = rows[0];
+
+    // Fetch recipients for this campaign
+    const recipients = await campaignRecipientRepository.getRecipientsByCampaign(id);
+
+    return {
+      id: row.id,
+      name: row.name,
+      subject: row.subject,
+      body: row.body,
+      status: row.status,
+      scheduled_at: row.scheduled_at,
+      created_by: {
+        id: row.created_by,
+        name: row.created_by_name,
+      },
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      recipient_count: parseInt(row.recipient_count, 10),
+      recipients,
+    };
   }
 
   /**
@@ -264,11 +452,14 @@ export class CampaignRepository {
 
     return await transaction(async (client) => {
       // Lock and update campaign status
-      const campaignResult = await client.query<Campaign>(
-        `UPDATE campaigns
-         SET status = 'sent', updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1 AND status IN ('draft', 'scheduled')
-         RETURNING id, name, subject, body, status, scheduled_at, created_by, created_at, updated_at`,
+      // Must also clear scheduled_at to satisfy database constraint:
+      // CONSTRAINT draft_can_be_scheduled CHECK (status = 'scheduled' OR scheduled_at IS NULL)
+      const campaignResult = await client.query<any>(
+        `UPDATE campaigns c
+         SET status = 'sent', scheduled_at = NULL, updated_at = CURRENT_TIMESTAMP
+         FROM users u
+         WHERE c.id = $1 AND c.status IN ('draft', 'scheduled') AND c.created_by = u.id
+         RETURNING c.id, c.name, c.subject, c.body, c.status, c.scheduled_at, c.created_by, c.created_at, c.updated_at, u.name as created_by_name, (SELECT COUNT(*) FROM campaign_recipients WHERE campaign_id = c.id) as recipient_count`,
         [id]
       );
 
@@ -284,7 +475,27 @@ export class CampaignRepository {
         [id]
       );
 
-      return campaignResult.rows[0];
+      const row = campaignResult.rows[0];
+
+      // Fetch recipients for this campaign
+      const recipients = await campaignRecipientRepository.getRecipientsByCampaign(id);
+
+      return {
+        id: row.id,
+        name: row.name,
+        subject: row.subject,
+        body: row.body,
+        status: row.status,
+        scheduled_at: row.scheduled_at,
+        created_by: {
+          id: row.created_by,
+          name: row.created_by_name,
+        },
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        recipient_count: parseInt(row.recipient_count, 10),
+        recipients,
+      };
     });
   }
 

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { campaignsService, campaignKeys } from './useCampaigns'
+import { getErrorMessage, CAMPAIGN_ERROR_MESSAGES } from '@/utils/errors'
 import type { Campaign, CreateCampaignRequest, UpdateCampaignRequest } from '@/types/api.types'
 
 /**
@@ -27,7 +28,7 @@ export function useCreateCampaign() {
     },
 
     onError: (error: any) => {
-      const message = error.error?.message || 'Failed to create campaign'
+      const message = getErrorMessage(error, 'Failed to create campaign')
       toast.error(message)
     },
   })
@@ -54,8 +55,14 @@ export function useUpdateCampaign() {
     },
 
     onError: (error: any) => {
-      const message = error.error?.message || 'Failed to update campaign'
-      toast.error(message)
+      const message = getErrorMessage(error, 'Failed to update campaign')
+
+      // Show specific message for state conflicts
+      if (error?.error?.code === 'INVALID_STATE') {
+        toast.error(CAMPAIGN_ERROR_MESSAGES.NOT_DRAFT)
+      } else {
+        toast.error(message)
+      }
     },
   })
 }
@@ -80,8 +87,14 @@ export function useDeleteCampaign() {
     },
 
     onError: (error: any) => {
-      const message = error.error?.message || 'Failed to delete campaign'
-      toast.error(message)
+      const message = getErrorMessage(error, 'Failed to delete campaign')
+
+      // Show specific message for state conflicts
+      if (error?.error?.code === 'INVALID_STATE') {
+        toast.error(CAMPAIGN_ERROR_MESSAGES.ALREADY_SENT)
+      } else {
+        toast.error(message)
+      }
     },
   })
 }
@@ -107,8 +120,16 @@ export function useScheduleCampaign() {
     },
 
     onError: (error: any) => {
-      const message = error.error?.message || 'Failed to schedule campaign'
-      toast.error(message)
+      const message = getErrorMessage(error, 'Failed to schedule campaign')
+
+      // Show specific message for state conflicts
+      if (error?.error?.code === 'INVALID_STATE') {
+        toast.error(CAMPAIGN_ERROR_MESSAGES.ALREADY_SENT)
+      } else if (error?.error?.message?.includes('future')) {
+        toast.error(CAMPAIGN_ERROR_MESSAGES.SCHEDULE_IN_PAST)
+      } else {
+        toast.error(message)
+      }
     },
   })
 }
@@ -134,15 +155,23 @@ export function useSendCampaign() {
     },
 
     onError: (error: any) => {
-      const message = error.error?.message || 'Failed to send campaign'
-      toast.error(message)
+      const message = getErrorMessage(error, 'Failed to send campaign')
+
+      // Show specific message for state conflicts
+      if (error?.error?.code === 'INVALID_STATE') {
+        toast.error(CAMPAIGN_ERROR_MESSAGES.ALREADY_SENT)
+      } else if (error?.error?.code === 'NO_RECIPIENTS') {
+        toast.error(CAMPAIGN_ERROR_MESSAGES.NO_RECIPIENTS)
+      } else {
+        toast.error(message)
+      }
     },
   })
 }
 
 /**
  * Hook for cancelling a scheduled campaign
- * (Updates campaign by setting empty recipient_ids to reset to draft)
+ * (Updates campaign by setting scheduled_at to null to reset to draft)
  */
 export function useCancelSchedule() {
   const queryClient = useQueryClient()
@@ -151,7 +180,7 @@ export function useCancelSchedule() {
     mutationFn: (id: string) =>
       campaignsService.update(id, {
         scheduled_at: null,
-      }),
+      } as UpdateCampaignRequest),
 
     onSuccess: (updatedCampaign, campaignId) => {
       // Update the campaign in cache
@@ -164,8 +193,20 @@ export function useCancelSchedule() {
     },
 
     onError: (error: any) => {
-      const message = error.error?.message || 'Failed to cancel schedule'
+      const message = getErrorMessage(error, 'Failed to cancel schedule')
       toast.error(message)
     },
   })
+}
+
+/**
+ * Export all mutation hooks as a group for convenient importing
+ */
+export const useCampaignMutations = {
+  useCreateCampaign,
+  useUpdateCampaign,
+  useDeleteCampaign,
+  useScheduleCampaign,
+  useSendCampaign,
+  useCancelSchedule,
 }
